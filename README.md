@@ -1,5 +1,5 @@
 ```
-# Autonomous QR Landing — Gazebo SITL
+ Autonomous QR Landing — Gazebo SITL
 
 A minimal setup & run guide for qr_autoland.py (Iris in Gazebo SITL).
 
@@ -16,7 +16,7 @@ Run the script (in another terminal):
 python3 qr_autoland.py
 
 Notes:
-- Default connection: udp:127.0.0.1:14550 (edit at top of qr_autoland.py).
-- Default camera: CAMERA_SOURCE=0 — change to Gazebo camera stream URL if needed.
+- Default connection: udp:127.0.0.1:14550 .
+- Default camera: CAMERA_SOURCE=0 — for Gazebo camera streamchange 0 to URL.
 - The script shows an OpenCV window; press ESC to abort. Test in SITL first.
 ```
