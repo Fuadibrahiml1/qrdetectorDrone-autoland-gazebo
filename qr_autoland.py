@@ -86,7 +86,7 @@ def send_ned_velocity(vehicle, vx, vy, vz):
     msg = vehicle.message_factory.set_position_target_local_ned_encode(
         0, 0, 0,
         mavutil.mavlink.MAV_FRAME_LOCAL_NED,
-        0b0000111111000111,  # use velocities
+        0b0000111111000111, 
         0, 0, 0,
         vx, vy, vz,
         0, 0, 0, 0, 0)
@@ -113,7 +113,6 @@ def camera_thread(cap):
         with frame_lock:
             latest_frame = frame.copy()
         time.sleep(0.01)
-    # release handled by caller
 
 def get_latest_frame():
     with frame_lock:
@@ -129,7 +128,6 @@ def detect_qr_code_opencv(frame, qr_detector):
         return None, None, None, None
     data, bbox, rectified = qr_detector.detectAndDecode(frame)
     if bbox is not None and data:
-        # bbox returned as (1,4,2) so take bbox[0]
         pts = bbox[0].astype(int)
         x_center = int(np.mean(pts[:, 0]))
         y_center = int(np.mean(pts[:, 1]))
@@ -148,10 +146,9 @@ def calculate_offset_movement(qr_center, frame_center, altitude, smoothing=True)
     """
     global smoothed_offset_x, smoothed_offset_y
 
-    offset_x = qr_center[0] - frame_center[0]  # + => QR is to the right (east)
-    offset_y = qr_center[1] - frame_center[1]  # + => QR is below (south in image coords)
+    offset_x = qr_center[0] - frame_center[0]  
+    offset_y = qr_center[1] - frame_center[1]  
 
-    # Exponential smoothing to reduce jitter
     if smoothing:
         smoothed_offset_x = SMOOTHING_ALPHA * offset_x + (1 - SMOOTHING_ALPHA) * smoothed_offset_x
         smoothed_offset_y = SMOOTHING_ALPHA * offset_y + (1 - SMOOTHING_ALPHA) * smoothed_offset_y
@@ -161,12 +158,10 @@ def calculate_offset_movement(qr_center, frame_center, altitude, smoothing=True)
         use_x = offset_x
         use_y = offset_y
 
-    # velocity proportional to pixel offset and altitude
     velocity_scale = BASE_VELOCITY_SCALE * max(1.0, altitude)
     vel_east = use_x * velocity_scale
-    vel_north = -use_y * velocity_scale  # invert image Y to NED
+    vel_north = -use_y * velocity_scale  
 
-    # clamp
     vel_east = max(min(vel_east, MAX_HORIZONTAL_VELOCITY), -MAX_HORIZONTAL_VELOCITY)
     vel_north = max(min(vel_north, MAX_HORIZONTAL_VELOCITY), -MAX_HORIZONTAL_VELOCITY)
 
@@ -246,21 +241,18 @@ def main():
             print(f"→ Waypoint {idx+1}/{len(waypoints)}")
             vehicle.simple_goto(wp)
             vehicle.groundspeed = SCAN_SPEED
-            # while not reached
             while get_distance_metres(vehicle.location.global_relative_frame, wp) > 1.5:
                 frame = get_latest_frame()
                 if frame is None:
                     time.sleep(0.05)
                     continue
                 center, data, bbox, area = detect_qr_code_opencv(frame, qr_detector)
-                # UI
                 cv2.putText(frame, f"Scan WP {idx+1}/{len(waypoints)}", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
                 cv2.putText(frame, f"Alt: {vehicle.location.global_relative_frame.alt:.1f}m", (8, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
                 if center and data:
                     print("QR detected:", data)
                     qr_found = True
                     qr_data = data
-                    # HOLD position
                     stop_vehicle(vehicle)
                     time.sleep(0.8)
                     break
@@ -281,7 +273,6 @@ def main():
                 time.sleep(0.5)
             return
 
-        # Approach & precision center
         print("Approaching and centering above QR...")
         vehicle.mode = VehicleMode("GUIDED")
         time.sleep(0.5)
@@ -303,18 +294,15 @@ def main():
             if center and area and area > MIN_QR_SIZE * 0.2:
                 vel_n, vel_e, off_x, off_y = calculate_offset_movement(center, frame_center, alt, smoothing=True)
                 dist_px = math.hypot(off_x, off_y)
-                # if within precision lock
                 if dist_px < PRECISION_CENTER_THRESHOLD:
                     print("Precision centered (lock).")
                     stop_vehicle(vehicle)
                     centered = True
                     break
                 else:
-                    # send movement
                     send_ned_velocity(vehicle, vel_n, vel_e, 0)
                 cv2.putText(frame, f"Approaching. Dist: {int(dist_px)} px", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
             else:
-                # try small holding search (rotate? here just hold)
                 stop_vehicle(vehicle)
                 cv2.putText(frame, "Reacquiring QR...", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,165,255), 2)
             cv2.imshow("UAV Camera Feed", frame)
@@ -328,7 +316,6 @@ def main():
         else:
             print("Centered. Starting controlled descent with tracking.")
 
-        # Controlled descent with tracking
         lost_frames = 0
         while vehicle.location.global_relative_frame.alt > LANDING_ALTITUDE:
             frame = get_latest_frame()
@@ -343,26 +330,21 @@ def main():
                 vel_n, vel_e, off_x, off_y = calculate_offset_movement(center, frame_center, alt, smoothing=True)
                 dist_px = math.hypot(off_x, off_y)
                 if dist_px < QR_CENTER_THRESHOLD:
-                    # descend slowly while keeping small corrections
-                    # POSITIVE VALUE FOR DESCENT_VELOCITY MAKES IT GO DOWN
+                  
                     send_ned_velocity(vehicle, vel_n * 0.35, vel_e * 0.35, DESCENT_VELOCITY)
                     status = "DESCENDING - CENTERED"
                 else:
-                    # correct without descending
                     send_ned_velocity(vehicle, vel_n, vel_e, 0)
                     status = "CORRECTING POSITION"
                 cv2.putText(frame, f"{status} | Dist:{int(dist_px)}px | Alt:{alt:.1f}m", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
             else:
                 lost_frames += 1
                 if lost_frames <= MAX_LOST_QR_FRAMES:
-                    # continue descending extremely slowly to attempt reacquire (safe)
                     send_ned_velocity(vehicle, 0, 0, DESCENT_VELOCITY * 0.3)
                     cv2.putText(frame, f"QR LOST - SLOW DESC ({lost_frames})", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,165,255), 2)
                 else:
-                    # lost too long -> hold and try small search pattern (here: hover)
                     stop_vehicle(vehicle)
                     cv2.putText(frame, "QR LOST - HOLDING. RETRIES...", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
-            # safety fallback: if too low, force LAND
             if vehicle.location.global_relative_frame.alt <= 3.0:
                 print("Altitude low (<3m). Forcing LAND fallback to be safe.")
                 vehicle.mode = VehicleMode("LAND")
@@ -373,7 +355,6 @@ def main():
                 raise KeyboardInterrupt
             time.sleep(0.12)
 
-        # Final correction loop (very close to ground)
         if vehicle.armed:
             print("Final correction & landing sequence.")
             stop_vehicle(vehicle)
